@@ -1,0 +1,22 @@
+{% if brand == "philips" %}
+    <h1>Add Philips Hue Bridge</h1>
+{% endif %}
+{% if error == 101 %}
+    <div class="warning">Error 101: The Hue Bridge link button was not pressed. Please try again.</div>
+{% elif error == 7 %}
+    <div class="warning">Error 7: Something went wrong. Please try again.</div>
+{% endif %}
+<form action="{% url 'm2m:add_controller' brand %}" method="post">
+{% csrf_token %}
+    Selection Bridge IP Address from list:<br>
+    <select required="required" name="ip_address" size="5" id="ip_address">
+        {% for address in ip_addresses %}
+            <option value="{{ address }}">{{ address }}</option>
+        {% endfor %}
+    </select>
+    <br>
+    Press the link button your Philips Hue Bridge, then submit this form within 30 seconds.
+    <br>
+    <input type="submit" value="register">
+
+</form>

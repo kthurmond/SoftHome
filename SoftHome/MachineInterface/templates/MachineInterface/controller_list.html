@@ -1,0 +1,19 @@
+{% if hue_bridges %}
+    These are your current controllers:<br>
+    <table>
+    <tr>
+        <th>Brand</th><th>Controller Name</th><th>IP Address</th><th>Manage</th>
+    </tr>
+    {% for bridge in hue_bridges %}
+        <tr>
+            <td>Philips Hue</td>
+            <td>{{ bridge.device.device_name }}</td>
+            <td>{{ bridge.device.ip_address }}</td>
+            <td>Update | Delete</td>
+        </tr>
+    {% endfor %}
+    <tr><td></td><td></td><td></td><td><a href="{% url 'm2m:new_controller_form' 'philips' %}">add new third-party controller</a></td></tr>
+    </table>
+{% else %}
+    <a href="{% url 'm2m:new_controller_form' 'philips' %}">add new third-party controller</a>
+{% endif %}
