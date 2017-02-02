@@ -11,7 +11,7 @@ class Device(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     enabled = models.BooleanField(default=True)
     device_type = models.CharField(max_length=100)
-    api = models.CharField(max_length=100)
+    api = models.CharField(max_length=100, default='softhome')
 
     def get_user_device_list(self):
         return Device.objects.filter(

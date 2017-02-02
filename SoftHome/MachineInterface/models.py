@@ -4,39 +4,36 @@ import http.client as httplib
 from django.db import models
 from django.apps import apps
 from django.contrib.auth.models import User
+from Portal.models import Device
 
 
-class WIFILocation(models.Model):
-    device = models.ForeignKey("Portal.Device")
+class WIFILocation(Device):
     ssid = models.CharField(max_length=200, null=True, blank=True)
     signal_strength = models.IntegerField(default=0)
     speed = models.IntegerField(default=0)
     gps_dd = models.CharField(max_length=30)
-    last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return self.device.device_name
+        return self.name
 
 
-class Sensor(models.Model):
-    name = models.CharField(max_length=64)
-    device = models.ForeignKey("Portal.Device")
+class Sensor(Device):
     state = models.DecimalField(max_digits=5, decimal_places=2)
     type = models.CharField(max_length=100)
     timelapse = models.FileField(max_length=200, null=True, blank=True)
     reachable = models.BooleanField(default=False)
     model_id = models.CharField(max_length=100)
-    controller_index = models.PositiveSmallIntegerField(default=0)   # #pk used by 3rd party controller
     unique_id = models.CharField(max_length=100)
-    manufacturer = models.CharField(max_length=100)
+    controller = models.ForeignKey("Portal.Device", related_name='get_sensor', null=True, blank=True)
+    controller_index = models.PositiveSmallIntegerField(default=0)   # #pk used by 3rd party controller
 
     def __str__(self):
         return self.name
 
     @classmethod
-    def import_all(cls, brand, controller):
+    def import_all(cls, api, controller):
         new_sensors = []
-        if brand == 'philips':
+        if api == 'philips':
             sensors = controller.get_sensors()
             for index, sensor in enumerate(sensors):
                 state_value = 0
@@ -48,60 +45,66 @@ class Sensor(models.Model):
                         elif sensors[sensor]['state'][state] == 'true':
                             state_value = 1
                         else:
-                            state_value =  float(sensors[sensor]['state'][state])
-                new_sensors[index] = cls.objects.create(device=controller.device,
-                                                        controller_index=int(sensor),
-                                                        state=state_value,
+                            state_value = float(sensors[sensor]['state'][state])
+
+                new_sensors[index] = cls.objects.create(state=state_value,
                                                         type=sensors[sensor]['type'],
                                                         reacheable=sensors[sensor]['reachable'],
-                                                        name=sensors[sensor]['name'],
                                                         model_id=sensors[sensor]['modelid'],
                                                         unique_id=sensors[sensor]['uniqueid'],
-                                                        manufacturer=brand
+                                                        controller=controller.device,
+                                                        controller_index=int(sensor),
+                                                        name=sensors[sensor]['name'],
+                                                        ip_address = controller.ip_address,
+                                                        mac_address = controller.mac_address,
+                                                        device_type = 'sensor',
+                                                        api=api,
                                                         )
                 new_sensors[index].save()
         return new_sensors
 
 
-class Light(models.Model):
+class Light(Device):
     state = models.BooleanField(default=False)
-    device = models.ForeignKey("Portal.Device")
     brightness = models.PositiveSmallIntegerField(default=0)
     ct = models.PositiveSmallIntegerField(default=0)
     alert = models.CharField(max_length=50, null=True, blank=True)
     reachable = models.BooleanField(default=False)
-    name = models.CharField(max_length=64)
     model_id = models.CharField(max_length=100)
     unique_id = models.CharField(max_length=100)
+    controller = models.ForeignKey("Portal.Device", related_name='get_light', null=True, blank=True)
     controller_index = models.PositiveSmallIntegerField(default=0)   # #pk used by 3rd party controller
-    manufacturer = models.CharField(max_length=100)
 
     def __str__(self):
         return self.name
 
     @classmethod
-    def import_all(cls, brand, controller):
+    def import_all(cls, api, controller):
         new_lights = []
-        if brand == 'philips':
+        if api == 'philips':
             lights = controller.get_light()
             for index, light in enumerate(lights):
-                new_lights[index] = cls.objects.create(device=controller.device,
-                                                       controller_index=int(light),
+                new_lights[index] = cls.objects.create(state=lights[light]['state']['on']=='true',
                                                        brightness=int(lights[light]['state']['bri']),
                                                        ct=int(lights[light]['state']['ct']),
                                                        alert=lights[light]['state']['alert'],
                                                        reacheable=lights[light]['state']['reachable'],
-                                                       name=lights[light]['name'],
                                                        model_id=lights[light]['modelid'],
                                                        unique_id=lights[light]['uniqueid'],
-                                                       manufacturer=brand
+                                                       controller=controller.device,
+                                                       controller_index=int(light),
+                                                       name=lights[light]['name'],
+                                                       ip_address=controller.ip_address,
+                                                       mac_address=controller.mac_address,
+                                                       device_type='light bulb',
+                                                       api=api,
                                                        )
                 new_lights[index].save()
         return new_lights
 
     def on(self, transition_time=None):
-        if self.manufacturer == 'philips':
-            hub = PhilipsHueBridge.objects.get(device=self.device)
+        if self.api == 'philips':
+            hub = PhilipsHueBridge.objects.get(device=self.controller)
             result = hub.set_light(self.controller_index, 'on', True, transition_time)
             if 'error' in list(result[-1][0].keys()):
                 return False
@@ -111,8 +114,8 @@ class Light(models.Model):
                 return True
 
     def off(self, transition_time=None):
-        if self.manufacturer == 'philips':
-            hub = PhilipsHueBridge.objects.get(device=self.device)
+        if self.api == 'philips':
+            hub = PhilipsHueBridge.objects.get(device=self.controller)
             result = hub.set_light(self.controller_index, 'on', False, transition_time)
             if 'error' in list(result[-1][0].keys()):
                 return False
@@ -124,8 +127,8 @@ class Light(models.Model):
     def set_brightness(self, brightness, percentage=False, transition_time=None):
         if percentage is True:
             brightness = brightness*255/100
-        if self.manufacturer == 'philips':
-            hub = PhilipsHueBridge.objects.get(device=self.device)
+        if self.api == 'philips':
+            hub = PhilipsHueBridge.objects.get(device=self.controller)
             result = hub.set_light(self.controller_index, 'bri', brightness, transition_time)
             if 'error' in list(result[-1][0].keys()):
                 return False
@@ -135,8 +138,8 @@ class Light(models.Model):
                 return True
 
     def set_ct(self, ct, transition_time=None):
-        if self.manufacturer == 'philips':
-            hub = PhilipsHueBridge.objects.get(device=self.device)
+        if self.api == 'philips':
+            hub = PhilipsHueBridge.objects.get(device=self.controller)
             result = hub.set_light(self.controller_index, 'ct', ct, transition_time)
             if 'error' in list(result[-1][0].keys()):
                 return False
@@ -157,14 +160,13 @@ class Scene(models.Model):
         return self.name
 
 
-class PhilipsHueBridge(models.Model):
-    device = models.ForeignKey("Portal.Device")
+class PhilipsHueBridge(Device):
     bridge_user = models.CharField(max_length=100, default='None')
     bridge_id = models.CharField(max_length=100, default='None')
     swversion = models.CharField(max_length=50, default='None')
 
     def __str__(self):
-        return self.device.device_name
+        return self.name
 
     @classmethod
     def register(cls, ip_address):
@@ -174,16 +176,13 @@ class PhilipsHueBridge(models.Model):
             user = User.objects.create_user('default_machine', password='default_machine')
             user.save()
 
-        device_model = apps.get_model('Portal', 'Device')
-        new_device = device_model.objects.create(user=user,
-                                                 device_name='Philips Hue Bridge',
-                                                 ip_address=ip_address,
-                                                 device_type='controller'
-                                                 )
 
-        new_device.save()
-
-        bridge = cls.objects.create(device=new_device)
+        bridge = cls.objects.create(user=user,
+                                    name='Philips Hue Bridge',
+                                    ip_address=ip_address,
+                                    device_type='controller',
+                                    api='philips'
+                                    )
 
         registration_request = {"devicetype": "python_hue"}
         response = bridge.request('POST', '/api', registration_request)
@@ -206,7 +205,7 @@ class PhilipsHueBridge(models.Model):
 
     def request(self, mode='GET', address=None, data=None):
         """ Utility function for HTTP GET/PUT requests for the API"""
-        connection = httplib.HTTPConnection(self.device.ip_address, timeout=10)
+        connection = httplib.HTTPConnection(self.ip_address, timeout=10)
 
         try:
             if mode == 'GET' or mode == 'DELETE':
@@ -229,7 +228,7 @@ class PhilipsHueBridge(models.Model):
 
         self.swversion = response['swversion']
         self.bridge_id = response['bridgeid']
-        self.device.mac_address = response['mac']
+        self.mac_address = response['mac']
         self.save()
 
     #  Lights
@@ -549,10 +548,9 @@ class PhilipsHueBridge(models.Model):
         return self.request('DELETE', '/api/' + self.bridge_user + '/schedules/' + str(schedule_id))
 
 
-class Outlet(models.Model):
-    name = models.CharField(max_length=100)
-    device = models.ForeignKey("Portal.Device")
-    primary_controller = models.CharField(max_length=100)
+class Outlet(Device):
+    controller = models.ForeignKey("Portal.Device", related_name='get_outlet', null=True, blank=True)
+    primary_controller = models.PositiveSmallIntegerField(default=0)
 
     def __str__(self):
         return self.name

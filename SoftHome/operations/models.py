@@ -2,71 +2,6 @@ from django.db import models
 from django.apps import apps
 
 
-class Group(models.Model):
-    name = models.CharField(max_length=50)
-    controller_index = models.PositiveSmallIntegerField(default=0)   # #pk used by 3rd party controller
-    manufacturer = models.CharField(max_length=100)
-    type = models.CharField(max_length=50)
-    all_on = models.BooleanField(default=False)
-    any_on = models.BooleanField(default=False)
-    classification = models.CharField(max_length=100, null=True, blank=True)
-    action_state = models.BooleanField(default=False)
-    devices = models.ManyToManyField("Portal.Device", related_name='grouped_in', null=True, blank=True)
-    room = models.ForeignKey(Room, related_name='inside', null=True, blank=True)
-    lights = models.ManyToManyField("MachineInterface.Light",
-                                    through='LightGroup',
-                                    related_name='grouped_in',
-                                    null=True,
-                                    blank=True
-                                    )
-
-    def __str__(self):
-        return self.name
-
-    @classmethod
-    def import_all(cls, brand, controller):
-        new_groups = []
-        if brand == 'philips':
-            groups = controller.get_group()
-            for index, group in enumerate(groups):
-                new_groups[index] = cls.objects.create(device=controller.device,
-                                                       controller_index=group,
-                                                       brightness=groups[group]['bri'],
-                                                       ct=groups[group]['ct'],
-                                                       alert=groups[group]['alert'],
-                                                       reacheable=groups[group]['reachable'],
-                                                       name=groups[group]['name'],
-                                                       model_id=groups[group]['modelid'],
-                                                       unique_id=groups[group]['uniqueid'],
-                                                       manufacturer=brand
-                                                       )
-                new_groups[index].save()
-        return new_groups
-
-    def add_light(self, light):
-        light_group, created = LightGroup.objects.get_or_create(
-            group=self,
-            light=light
-        )
-        return light_group
-
-    def remove_light(self, light):
-        LightGroup.objects.filter(
-            group=self,
-            light=light
-        ).delete()
-
-
-class LightGroup(models.Model):
-    group = models.ForeignKey(Group, related_name='group')
-    light = models.ForeignKey("MachineInterface.Light", related_name='light')
-    brightness = models.PositiveSmallIntegerField(default=0)
-    ct = models.PositiveIntegerField(default=0)
-    alert = models.CharField(max_length=50, null=True, blank=True)
-
-    def __str__(self):
-        return self.group.name
-
 CONNECTION_TYPES = ((1, 'Wall'), (2, 'Door'), (3, 'Open Space'), (4, 'Counter/Half-wall'))
 SIDES = ((1, 'Left'), (2, 'Right'), (3, 'Top'), (4, 'Bottom'))
 
@@ -131,6 +66,71 @@ class RoomConnection(models.Model):
     second_room = models.ForeignKey(Room, related_name='second_room')
     connection = models.PositiveSmallIntegerField(choices=CONNECTION_TYPES, default='Door')
     side = models.PositiveSmallIntegerField(choices=SIDES, default='Left')
+
+
+class Group(models.Model):
+    name = models.CharField(max_length=50)
+    controller_index = models.PositiveSmallIntegerField(default=0)   # #pk used by 3rd party controller
+    api = models.CharField(max_length=100, default='softhome')
+    type = models.CharField(max_length=50)
+    all_on = models.BooleanField(default=False)
+    any_on = models.BooleanField(default=False)
+    classification = models.CharField(max_length=100, null=True, blank=True)
+    action_state = models.BooleanField(default=False)
+    room = models.ForeignKey(Room, related_name='inside', null=True, blank=True)
+    lights = models.ManyToManyField("MachineInterface.Light",
+                                    through='LightGroup',
+                                    related_name='grouped_in',
+                                    null=True,
+                                    blank=True
+                                    )
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def import_all(cls, api, controller):
+        new_groups = []
+        if api == 'philips':
+            groups = controller.get_group()
+            for index, group in enumerate(groups):
+                new_groups[index] = cls.objects.create(device=controller.device,
+                                                       controller_index=group,
+                                                       brightness=groups[group]['bri'],
+                                                       ct=groups[group]['ct'],
+                                                       alert=groups[group]['alert'],
+                                                       reacheable=groups[group]['reachable'],
+                                                       name=groups[group]['name'],
+                                                       model_id=groups[group]['modelid'],
+                                                       unique_id=groups[group]['uniqueid'],
+                                                       api=api
+                                                       )
+                new_groups[index].save()
+        return new_groups
+
+    def add_light(self, light):
+        light_group, created = LightGroup.objects.get_or_create(
+            group=self,
+            light=light
+        )
+        return light_group
+
+    def remove_light(self, light):
+        LightGroup.objects.filter(
+            group=self,
+            light=light
+        ).delete()
+
+
+class LightGroup(models.Model):
+    group = models.ForeignKey(Group, related_name='group')
+    light = models.ForeignKey("MachineInterface.Light", related_name='light')
+    brightness = models.PositiveSmallIntegerField(default=0)
+    ct = models.PositiveIntegerField(default=0)
+    alert = models.CharField(max_length=50, null=True, blank=True)
+
+    def __str__(self):
+        return self.group.name
 
 
 class Condition(models.Model):
