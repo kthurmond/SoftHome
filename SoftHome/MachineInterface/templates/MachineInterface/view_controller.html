@@ -1,0 +1,121 @@
+<table>
+    <tr>
+        <th>Name</th><th>IP Address</th><th>MAC Address</th><th>Software Version</th><th>Created</th><th>Updated</th>
+        <th>Enabled</th><th>Modify</th>
+    </tr>
+    <tr>
+        <td>{{ device.name }} </td>
+        <td>{{ device.ip_address }}</td>
+        <td>{{ device.mac_address }}</td>
+        <td>{{ device.philips_device.swversion }}</td>
+        <td>{{ device.created }}</td>
+        <td>{{ device.last_updated }}</td>
+        <td>{{ device.enabled }}</td>
+        <td>
+            <form method="post" action="{% url 'm2m:controller_list' %}" style="display: inline" id="delete{{ bridge.philips_device.pk }}">
+                    {% csrf_token %}
+                    <input name="delete" type="hidden" value="{{ bridge.philips_device.pk }}">
+                    <a href="#" onclick="document.forms['delete{{ bridge.philips_device.pk }}'].submit();">Delete</a>
+            </form>
+        </td>
+    </tr>
+</table>
+
+{% if lights %}
+    <h1>Lights</h1>
+    <table>
+        <tr>
+            <th>Index</th><th>Name</th><th>State</th><th>Brightness</th><th>Color Mode</th>
+            <th>Color Temperature (Mired)</th><th>Color CIE xy</th><th>Alert</th><th>Reachable</th>
+            <th>Type</th><th>Model</th><th>Created</th><th>Last Updated</th>
+        </tr>
+        {% for light in lights %}
+            <tr>
+                <td>{{ light.controller_index }}</td>
+                <td>{{ light.name }}</td>
+                <td>{%   if light.state %}
+                        On
+                    {% else %}
+                        Off
+                    {% endif %}
+                </td>
+                <td>{{ light.brightness }}</td>
+                <td>{{ light.colormode }}</td>
+                <td>{{ light.color_temperature }}</td>
+                <td>{{ light.color_cie_xy }}</td>
+                <td>{{ light.alert }}</td>
+                <td>{{ light.reachable }}</td>
+                <td>{{ light.type }}</td>
+                <td>{{ light.model_id }}</td>
+                <td>{{ light.created }}</td>
+                <td>{{ light.last_updated }}</td>
+            </tr>
+        {% endfor %}
+    </table>
+{% endif %}
+
+{% if sensors %}
+    <h1>Sensors</h1>
+        <table>
+        <tr>
+            <th>Index</th><th>Name</th><th>Type</th><th>State</th><th>Recording</th><th>Reachable</th>
+            <th>Model</th><th>Created</th><th>Last Updated</th>
+        </tr>
+        {% for sensor in sensors %}
+            <tr>
+                <td>{{ sensor.controller_index }}</td>
+                <td>{{ sensor.name }}</td>
+                <td>{{ sensor.type }}</td>
+                <td>
+                    {% if sensor.state == 1 %}
+                        True
+                    {% elif sensor.state == 0 %}
+                        False
+                    {% else %}
+                        {{ sensor.state }}
+                    {% endif %}
+                </td>
+                <td>{{ sensor.timelapse }}</td>
+                <td>{{ sensor.reachable }}</td>
+                <td>{{ sensor.model_id }}</td>
+                <td>{{ sensor.created }}</td>
+                <td>{{ sensor.last_updated }}</td>
+            </tr>
+        {% endfor %}
+    </table>
+{% endif %}
+
+{% if groups %}
+    <h1>Groups</h1>
+    <table>
+        <tr>
+            <th>Index</th><th>Name</th><th>State</th><th>Brightness</th><th>Color Mode</th>
+            <th>Color Temperature (Mired)</th><th>Color CIE xy</th><th>Alert</th><th>All On</th>
+            <th>Any On</th><th>Lights</th>
+        </tr>
+        {% for group in groups %}
+            <tr>
+                <td>{{ group.controller_index }}</td>
+                <td>{{ group.name }}</td>
+                <td>{%   if group.action_state %}
+                        On
+                    {% else %}
+                        Off
+                    {% endif %}
+                </td>
+                <td>{{ group.brightness }}</td>
+                <td>{{ group.colormode }}</td>
+                <td>{{ group.color_temperature }}</td>
+                <td>{{ group.color_cie_xy }}</td>
+                <td>{{ group.alert }}</td>
+                <td>{{ group.all_on }}</td>
+                <td>{{ group.any_on }}</td>
+                <td>
+                    {% for light in group.lights.all %}
+                        {{ light.light_device.controller_index }},
+                    {% endfor %}
+                </td>
+            </tr>
+        {% endfor %}
+    </table>
+{% endif %}

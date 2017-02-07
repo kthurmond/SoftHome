@@ -20,4 +20,4 @@ class Device(models.Model):
         )
 
     def __str__(self):
-        return self.device_name
+        return self.name

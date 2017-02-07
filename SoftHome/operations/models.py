@@ -1,14 +1,88 @@
 from django.db import models
 from django.apps import apps
+from MachineInterface.models import Light
 
 
 CONNECTION_TYPES = ((1, 'Wall'), (2, 'Door'), (3, 'Open Space'), (4, 'Counter/Half-wall'))
 SIDES = ((1, 'Left'), (2, 'Right'), (3, 'Top'), (4, 'Bottom'))
 
 
-class Room(models.Model):
+class Group(models.Model):
     name = models.CharField(max_length=100)
-    type = models.CharField(max_length=100)
+    type = models.CharField(max_length=100, null=True, blank=True)
+    action_state = models.BooleanField(default=False)
+    all_on = models.BooleanField(default=False)
+    any_on = models.BooleanField(default=False)
+    controller = models.ForeignKey("Portal.Device", related_name="group_controller", null=True, blank=True)
+    controller_index = models.PositiveSmallIntegerField(default=0)   # #pk used by 3rd party controller
+    subgroups = models.ManyToManyField("self",
+                                       symmetrical=False,
+                                       related_name='get_subgroups',
+                                       related_query_name='get_super_groups'
+                                       )
+
+    def __str__(self):
+        return self.name
+
+
+class LightGroup(Group):
+    group = models.OneToOneField(Group, parent_link=True, related_name='light_group')
+    lights = models.ManyToManyField("Portal.Device", related_name='lights')
+    brightness = models.PositiveSmallIntegerField(default=0)
+    colormode = models.CharField(max_length=100, default='ct')
+    color_temperature = models.PositiveIntegerField(default=153)
+    color_cie_xy = models.CharField(max_length=100, default='[0.31306, 0.32318]')
+    alert = models.CharField(max_length=50, null=True, blank=True)
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def import_all(cls, api, controller):
+        new_groups = []
+        if api == 'philips':
+            groups = controller.get_group()
+            for group in groups:
+                color_ct = 153
+                color_cie = '[0.31306, 0.32318]'
+                if 'ct' in groups[group]['action']:
+                    color_ct = int(groups[group]['action']['ct'])
+                    color_cie = Light.convert_color(groups[group]['action']['ct'])
+                elif 'xy' in groups[group]['action']:
+                    color_cie = groups[group]['action']['xy']
+                    color_ct = Light.convert_color(int(groups[group]['action']['xy']))
+
+                new_group, created = cls.objects.update_or_create(
+                    type='DeviceGroup',
+                    controller=controller.philips_device,
+                    controller_index=int(group),
+                    name=groups[group]['name'],
+                    defaults={
+                        'action_state': groups[group]['action']['on'],
+                        'all_on': groups[group]['state']['all_on'],
+                        'any_on': groups[group]['state']['any_on'],
+                        'brightness': int(groups[group]['action']['bri']),
+                        'color_temperature': color_ct,
+                        'color_cie_xy': color_cie,
+                        'colormode': groups[group]['action']['colormode'],
+                        'alert': groups[group]['action']['alert'],
+                    }
+                    )
+
+                new_groups.append(new_group)
+                new_groups[-1].save()
+
+                new_groups[-1].lights.clear()
+                for light in groups[group]['lights']:
+                    new_light = Light.objects.filter(controller_index=int(light), controller=controller.philips_device)
+                    if new_light.count()>0:
+                        new_groups[-1].lights.add(new_light[0].light_device)
+
+        return new_groups
+
+
+class Room(Group):
+    group = models.ForeignKey(Group, parent_link=True, related_name='room_group')
     windows = models.PositiveSmallIntegerField(default=0)
     outside_doors = models.PositiveSmallIntegerField(default=0)
     skylights = models.PositiveSmallIntegerField(default=0)
@@ -22,7 +96,7 @@ class Room(models.Model):
         return self.name
 
     def add_connection(self, room, connection, side, symm=True):
-        connection, created = RoomConnection.objects.get_or_create(
+        connection = RoomConnection(
             first_room=self,
             second_room=room,
             connection=connection,
@@ -68,81 +142,16 @@ class RoomConnection(models.Model):
     side = models.PositiveSmallIntegerField(choices=SIDES, default='Left')
 
 
-class Group(models.Model):
-    name = models.CharField(max_length=50)
-    controller_index = models.PositiveSmallIntegerField(default=0)   # #pk used by 3rd party controller
-    api = models.CharField(max_length=100, default='softhome')
-    type = models.CharField(max_length=50)
-    all_on = models.BooleanField(default=False)
-    any_on = models.BooleanField(default=False)
-    classification = models.CharField(max_length=100, null=True, blank=True)
-    action_state = models.BooleanField(default=False)
-    room = models.ForeignKey(Room, related_name='inside', null=True, blank=True)
-    lights = models.ManyToManyField("MachineInterface.Light",
-                                    through='LightGroup',
-                                    related_name='grouped_in',
-                                    null=True,
-                                    blank=True
-                                    )
-
-    def __str__(self):
-        return self.name
-
-    @classmethod
-    def import_all(cls, api, controller):
-        new_groups = []
-        if api == 'philips':
-            groups = controller.get_group()
-            for index, group in enumerate(groups):
-                new_groups[index] = cls.objects.create(device=controller.device,
-                                                       controller_index=group,
-                                                       brightness=groups[group]['bri'],
-                                                       ct=groups[group]['ct'],
-                                                       alert=groups[group]['alert'],
-                                                       reacheable=groups[group]['reachable'],
-                                                       name=groups[group]['name'],
-                                                       model_id=groups[group]['modelid'],
-                                                       unique_id=groups[group]['uniqueid'],
-                                                       api=api
-                                                       )
-                new_groups[index].save()
-        return new_groups
-
-    def add_light(self, light):
-        light_group, created = LightGroup.objects.get_or_create(
-            group=self,
-            light=light
-        )
-        return light_group
-
-    def remove_light(self, light):
-        LightGroup.objects.filter(
-            group=self,
-            light=light
-        ).delete()
-
-
-class LightGroup(models.Model):
-    group = models.ForeignKey(Group, related_name='group')
-    light = models.ForeignKey("MachineInterface.Light", related_name='light')
-    brightness = models.PositiveSmallIntegerField(default=0)
-    ct = models.PositiveIntegerField(default=0)
-    alert = models.CharField(max_length=50, null=True, blank=True)
-
-    def __str__(self):
-        return self.group.name
-
-
 class Condition(models.Model):
     status = models.BooleanField(default=False)
     device = models.ForeignKey("Portal.Device")
-    device_state = models.CharField(max_length=30)
+    get_state = models.CharField(max_length=30)
     operator = models.CharField(max_length=5)
     value = models.PositiveSmallIntegerField(default=0)
     enabled = models.BooleanField(default=True)
 
     def __str__(self):
-        return self.device.device.name
+        return self.device.name
 
 
 class Rule(models.Model):
@@ -152,8 +161,8 @@ class Rule(models.Model):
     enabled = models.BooleanField(default=True)
     recycle = models.BooleanField(default=True)
     status = models.BooleanField(default=False)
+    conditions = models.ManyToManyField(Condition, related_name='conditions')
     condition_relations = models.CharField(max_length=50)
-    conditions = models.ManyToManyField(Condition)
 
     def __str__(self):
         return self.name
@@ -162,8 +171,8 @@ class Rule(models.Model):
 class Action(models.Model):
     rule = models.ForeignKey(Rule)
     device = models.ForeignKey("Portal.Device")
-    device_state = models.CharField(max_length=30)
+    set_state = models.CharField(max_length=30)
     action = models.CharField(max_length=200, default="0")
 
     def __str__(self):
-        return self.device.device_name
+        return self.rule.name
